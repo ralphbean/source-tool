@@ -1,0 +1,32 @@
+# Example .gitlab-ci.yml for a project using SLSA source provenance
+#
+# This example shows how to integrate SLSA source provenance generation
+# into your GitLab CI/CD pipeline
+
+stages:
+  - test
+  - build
+  - .post
+
+# Include the SLSA source provenance template
+include:
+  - local: '.gitlab/slsa-source-provenance.gitlab-ci.yml'
+
+# Your regular CI/CD jobs
+test:
+  stage: test
+  image: golang:1.25
+  script:
+    - go test ./...
+
+build:
+  stage: build
+  image: golang:1.25
+  script:
+    - go build -o myapp
+  artifacts:
+    paths:
+      - myapp
+
+# The SLSA provenance jobs from the included template will run automatically
+# in the .post stage after all other jobs complete

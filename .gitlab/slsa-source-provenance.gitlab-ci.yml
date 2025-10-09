@@ -1,0 +1,89 @@
+# SLSA Source Provenance Generator for GitLab CI/CD
+#
+# This template can be included in your .gitlab-ci.yml to generate
+# SLSA source provenance for your commits.
+#
+# Usage:
+#   include:
+#     - local: '.gitlab/slsa-source-provenance.gitlab-ci.yml'
+#
+# Requirements:
+#   - GITLAB_TOKEN: Set as a CI/CD variable with api scope
+
+.slsa_source_base:
+  image: golang:1.25
+  before_script:
+    - apt-get update && apt-get install -y git
+    - |
+      # Install sourcetool
+      go install github.com/slsa-framework/source-tool@latest
+      # Alternatively, use a specific version or build from source
+
+slsa:compute_source_level:
+  extends: .slsa_source_base
+  stage: .post
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+      when: always
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: always
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    GIT_STRATEGY: clone
+    GIT_DEPTH: 0  # Full clone for provenance chain
+  script:
+    - |
+      # Fetch the repository with git notes
+      git config remote.origin.fetch '+refs/notes/*:refs/notes/*'
+      git fetch origin
+
+      # Get the current commit
+      COMMIT_SHA="${CI_COMMIT_SHA}"
+      BRANCH_REF="refs/heads/${CI_COMMIT_REF_NAME}"
+
+      echo "Computing SLSA source level for commit ${COMMIT_SHA} on ${BRANCH_REF}"
+
+      # Run sourcetool to compute and attest the SLSA source level
+      sourcetool checklevelprov \
+        --commit="${COMMIT_SHA}" \
+        --ref="${BRANCH_REF}" \
+        --repo="${CI_PROJECT_PATH}"
+
+      # Push git notes back to the repository
+      git push origin refs/notes/*
+  only:
+    - branches
+  except:
+    - tags
+
+slsa:verify_tag:
+  extends: .slsa_source_base
+  stage: .post
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: always
+  variables:
+    GITLAB_TOKEN: $GITLAB_TOKEN
+    GIT_STRATEGY: clone
+    GIT_DEPTH: 0
+  script:
+    - |
+      # Fetch git notes
+      git config remote.origin.fetch '+refs/notes/*:refs/notes/*'
+      git fetch origin
+
+      TAG_REF="refs/tags/${CI_COMMIT_TAG}"
+      COMMIT_SHA="${CI_COMMIT_SHA}"
+
+      echo "Verifying SLSA source level for tag ${CI_COMMIT_TAG}"
+
+      # Run sourcetool to verify and attest the tag
+      sourcetool checktag \
+        --tag="${TAG_REF}" \
+        --commit="${COMMIT_SHA}" \
+        --repo="${CI_PROJECT_PATH}"
+
+      # Push git notes
+      git push origin refs/notes/*
+  only:
+    - tags

@@ -10,11 +10,13 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/fatih/color"
 	"github.com/google/go-github/v69/github"
 	"github.com/hashicorp/go-retryablehttp"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
@@ -32,6 +34,7 @@ const (
 
 	// Token filename
 	githubTokenFileName = "sourcetool.github.token"
+	gitlabTokenFileName = "sourcetool.gitlab.token"
 )
 
 var oauthScopes = []string{
@@ -139,6 +142,25 @@ func (a *Authenticator) GetGitHubClient() (*github.Client, error) {
 	rClient.Logger = nil // Comment this line to monitor GH api calls
 	httpClient := rClient.StandardClient()
 	return github.NewClient(httpClient).WithAuthToken(token), nil
+}
+
+// GetGitLabClient returns a GitLab client preconfigured with
+// the logged-in token or GITLAB_TOKEN environment variable.
+func (a *Authenticator) GetGitLabClient() (*gitlab.Client, error) {
+	// Try reading from environment first
+	token := os.Getenv("GITLAB_TOKEN")
+	if token == "" {
+		// Try reading from file
+		var err error
+		token, err = a.impl.readGitLabToken()
+		if err != nil {
+			return nil, fmt.Errorf("reading GitLab token: %w", err)
+		}
+	}
+	if token == "" {
+		return nil, errors.New("GitLab token is empty, set GITLAB_TOKEN or authenticate")
+	}
+	return gitlab.NewClient(token)
 }
 
 // WhoAmI returns the user authenticated with the token

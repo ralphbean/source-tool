@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -97,7 +98,20 @@ func Execute() {
 }
 
 func CheckAuth() (*auth.Authenticator, error) {
+	return CheckAuthWithHostname("")
+}
+
+func CheckAuthWithHostname(hostname string) (*auth.Authenticator, error) {
 	authenticator := auth.New()
+
+	// For GitLab, skip the WhoAmI check since it uses GITLAB_TOKEN directly
+	if hostname != "" && strings.Contains(strings.ToLower(hostname), "gitlab") {
+		// GitLab authentication is handled via GITLAB_TOKEN environment variable
+		// The connection will fail later if the token is missing or invalid
+		return authenticator, nil
+	}
+
+	// For GitHub, check if user is logged in
 	user, err := authenticator.WhoAmI()
 	if err != nil {
 		return nil, fmt.Errorf("checking authentication status: %w", err)

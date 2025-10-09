@@ -131,11 +131,11 @@ func createTempPolicyFile(t *testing.T, policyData interface{}) string {
 func validateMockServerRequestPath(t *testing.T, r *http.Request, expectedPolicyOwner, expectedPolicyRepo, expectedPolicyBranch string) {
 	t.Helper()
 	// This ghConn is only for generating the policy file path segment based on the target repo's details
-	policyFilePathSegment := getPolicyPath(&models.Repository{
+	policyFilePathSegment := GetPolicyPath(&models.Repository{
 		Hostname:      "github.com",
 		Path:          expectedPolicyOwner + "/" + expectedPolicyRepo,
 		DefaultBranch: expectedPolicyBranch,
-	}) // getPolicyPath is an existing function in the policy package
+	}) // GetPolicyPath is an existing function in the policy package
 
 	// Construct the full expected API path suffix for the GetContents call
 	// sourcePolicyRepoOwner and sourcePolicyRepo are constants defined in policy_test.go (and policy.go)
@@ -1791,6 +1791,144 @@ func TestGetPolicy_Remote_MalformedJSON(t *testing.T) {
 			}
 			if gotPath != "" { // Path should be empty as we error out before using HTMLURL
 				t.Errorf("Expected path to be empty on malformed JSON, got %q", gotPath)
+			}
+		})
+	}
+}
+
+// GitLab-specific integration tests
+
+func TestGetPolicyPath_GitLabCom(t *testing.T) {
+	tests := []struct {
+		name         string
+		repo         *models.Repository
+		expectedPath string
+	}{
+		{
+			name: "gitlab.com repository",
+			repo: &models.Repository{
+				Hostname: "gitlab.com",
+				Path:     "myorg/myrepo",
+			},
+			expectedPath: "policy/gitlab.com/myorg/myrepo/source-policy.json",
+		},
+		{
+			name: "gitlab.com with multiple path segments",
+			repo: &models.Repository{
+				Hostname: "gitlab.com",
+				Path:     "group/subgroup/project",
+			},
+			expectedPath: "policy/gitlab.com/group/subgroup/project/source-policy.json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetPolicyPath(tt.repo)
+			if got != tt.expectedPath {
+				t.Errorf("GetPolicyPath() = %q, want %q", got, tt.expectedPath)
+			}
+		})
+	}
+}
+
+func TestGetPolicyPath_SelfHostedGitLab(t *testing.T) {
+	tests := []struct {
+		name         string
+		repo         *models.Repository
+		expectedPath string
+	}{
+		{
+			name: "self-hosted GitLab",
+			repo: &models.Repository{
+				Hostname: "gitlab.example.com",
+				Path:     "myorg/myrepo",
+			},
+			expectedPath: "policy/gitlab.example.com/myorg/myrepo/source-policy.json",
+		},
+		{
+			name: "self-hosted with subdomain",
+			repo: &models.Repository{
+				Hostname: "git.internal.company.com",
+				Path:     "team/project",
+			},
+			expectedPath: "policy/git.internal.company.com/team/project/source-policy.json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetPolicyPath(tt.repo)
+			if got != tt.expectedPath {
+				t.Errorf("GetPolicyPath() = %q, want %q", got, tt.expectedPath)
+			}
+		})
+	}
+}
+
+func TestGetPolicyPath_DefaultToGitHub(t *testing.T) {
+	tests := []struct {
+		name         string
+		repo         *models.Repository
+		expectedPath string
+	}{
+		{
+			name: "empty hostname defaults to github.com",
+			repo: &models.Repository{
+				Hostname: "",
+				Path:     "owner/repo",
+			},
+			expectedPath: "policy/github.com/owner/repo/source-policy.json",
+		},
+		{
+			name: "explicit github.com",
+			repo: &models.Repository{
+				Hostname: "github.com",
+				Path:     "owner/repo",
+			},
+			expectedPath: "policy/github.com/owner/repo/source-policy.json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetPolicyPath(tt.repo)
+			if got != tt.expectedPath {
+				t.Errorf("GetPolicyPath() = %q, want %q", got, tt.expectedPath)
+			}
+		})
+	}
+}
+
+func TestGetPolicyPath_ErrorCases(t *testing.T) {
+	tests := []struct {
+		name         string
+		repo         *models.Repository
+		expectedPath string
+	}{
+		{
+			name: "empty path",
+			repo: &models.Repository{
+				Hostname: "gitlab.com",
+				Path:     "",
+			},
+			expectedPath: "",
+		},
+		{
+			name: "invalid path format (single segment)",
+			repo: &models.Repository{
+				Hostname: "gitlab.com",
+				Path:     "single-segment",
+			},
+			expectedPath: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := GetPolicyPath(tt.repo)
+			if got != tt.expectedPath {
+				t.Errorf("GetPolicyPath() = %q, want %q", got, tt.expectedPath)
 			}
 		})
 	}

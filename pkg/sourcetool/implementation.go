@@ -22,6 +22,7 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/slsa"
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/backends/attestation/notes"
 	ghbackend "github.com/slsa-framework/source-tool/pkg/sourcetool/backends/vcs/github"
+	glbackend "github.com/slsa-framework/source-tool/pkg/sourcetool/backends/vcs/gitlab"
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/options"
 )
@@ -65,8 +66,23 @@ func (impl *defaultToolImplementation) GetAttestationReader(_ *models.Repository
 }
 
 // GetVcsBackend returns the VCS backend to handle the repository defined in the options
-func (impl *defaultToolImplementation) GetVcsBackend(*models.Repository) (models.VcsBackend, error) {
-	// for now we only support github, so there
+func (impl *defaultToolImplementation) GetVcsBackend(r *models.Repository) (models.VcsBackend, error) {
+	if r == nil {
+		return nil, fmt.Errorf("repository is nil")
+	}
+
+	// Detect platform based on hostname
+	hostname := strings.ToLower(r.Hostname)
+	if hostname == "" {
+		hostname = "github.com" // default to GitHub for backward compatibility
+	}
+
+	// Check if it's GitLab
+	if strings.Contains(hostname, "gitlab") {
+		return glbackend.New(), nil
+	}
+
+	// Default to GitHub
 	return ghbackend.New(), nil
 }
 
@@ -98,6 +114,12 @@ func (impl *defaultToolImplementation) CreatePolicyPR(a *auth.Authenticator, opt
 	repoOwner, repoName, err := r.PathAsGitHubOwnerName()
 	if err != nil {
 		return nil, err
+	}
+
+	// Get the hostname for the repository
+	hostname := r.Hostname
+	if hostname == "" {
+		hostname = "github.com"
 	}
 
 	// Check the repository clone in the user's account is ready to push
@@ -138,7 +160,7 @@ func (impl *defaultToolImplementation) CreatePolicyPR(a *auth.Authenticator, opt
 		policyRepo,
 		&roptions.PullRequestFileListOptions{
 			Title: fmt.Sprintf("Add %s/%s SLSA Source policy file", repoOwner, repoName),
-			Body:  fmt.Sprintf(`This pull request adds the SLSA source policy for github.com/%s/%s`, repoOwner, repoName),
+			Body:  fmt.Sprintf(`This pull request adds the SLSA source policy for %s/%s/%s`, hostname, repoOwner, repoName),
 			CommitOptions: roptions.CommitOptions{
 				Name:  user.GetLogin(),
 				Email: user.GetLogin() + "@users.noreply.github.com",
@@ -146,7 +168,7 @@ func (impl *defaultToolImplementation) CreatePolicyPR(a *auth.Authenticator, opt
 		},
 		[]*repo.PullRequestFileEntry{
 			{
-				Path:   fmt.Sprintf("policy/github.com/%s/%s/source-policy.json", repoOwner, repoName),
+				Path:   policy.GetPolicyPath(r),
 				Reader: bytes.NewReader(policyJson),
 			},
 		},
@@ -264,7 +286,9 @@ func (impl *defaultToolImplementation) GetPolicyStatus(
 		Path:     fmt.Sprintf("%s/%s", policyRepoOwner, policyRepoRepo),
 	}, fmt.Sprintf("Add %s SLSA Source policy file", r.Path))
 	if err != nil {
-		return nil, fmt.Errorf("searching for policy pull request: %w", err)
+		// If we can't search for PRs (no GitHub token), just report policy as not enabled
+		// This allows GitLab repos to work without GitHub authentication
+		prNr = nil
 	}
 
 	// No pull request found. Not implemented

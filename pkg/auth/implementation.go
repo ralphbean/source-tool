@@ -27,6 +27,7 @@ type authenticatorImplementation interface {
 	checkTokenStatus(context.Context, string) (string, error)
 	persistToken(token string) error
 	readToken() (string, error)
+	readGitLabToken() (string, error)
 }
 
 type defaultImplementation struct{}
@@ -192,4 +193,22 @@ func (di *defaultImplementation) readToken() (string, error) {
 	}
 
 	return ret, nil
+}
+
+func (di *defaultImplementation) readGitLabToken() (string, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("getting user config dir: %w", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, configDirName, gitlabTokenFileName))
+	if err != nil {
+		// If the token file is not found, return empty (will fall back to env var)
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", fmt.Errorf("reading GitLab token file: %w", err)
+	}
+
+	return strings.TrimSpace(string(data)), nil
 }

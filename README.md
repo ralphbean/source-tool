@@ -4,6 +4,8 @@ A tool that helps users implement the SLSA Source Track.
 
 Status: in development
 
+**Platform Support:** GitHub and GitLab (see [VCS Backend Support](docs/VCS.md))
+
 ## Design
 
 [REQUIREMENTS_MAPPING.md](docs/REQUIREMENTS_MAPPING.md) defines the rationale for how

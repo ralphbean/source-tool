@@ -96,7 +96,7 @@ sourcetool status myorg/myrepo@mybranch
 
 			cmd.SilenceUsage = true
 
-			authenticator, err := CheckAuth()
+			authenticator, err := CheckAuthWithHostname(opts.hostname)
 			if err != nil {
 				return err
 			}

@@ -14,12 +14,14 @@ import (
 
 	"github.com/slsa-framework/source-tool/pkg/auth"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
+	"github.com/slsa-framework/source-tool/pkg/glcontrol"
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type repoOptions struct {
 	owner      string
 	repository string
+	hostname   string
 }
 
 func (ro *repoOptions) Validate() error {
@@ -55,8 +57,12 @@ func (ro *repoOptions) ParseSlug(lString string) error {
 }
 
 func (ro *repoOptions) GetRepository() *models.Repository {
+	hostname := ro.hostname
+	if hostname == "" {
+		hostname = "github.com" // default to GitHub for backward compatibility
+	}
 	return &models.Repository{
-		Hostname: "github.com",
+		Hostname: hostname,
 		Path:     fmt.Sprintf("%s/%s", ro.owner, ro.repository),
 	}
 }
@@ -81,10 +87,14 @@ func (bo *branchOptions) AddFlags(cmd *cobra.Command) {
 }
 
 func (bo *branchOptions) GetBranch() *models.Branch {
+	hostname := bo.hostname
+	if hostname == "" {
+		hostname = "github.com" // default to GitHub for backward compatibility
+	}
 	return &models.Branch{
 		Name: bo.branch,
 		Repository: &models.Repository{
-			Hostname: "github.com",
+			Hostname: hostname,
 			Path:     fmt.Sprintf("%s/%s", bo.owner, bo.repository),
 		},
 	}
@@ -107,6 +117,10 @@ func (bo *branchOptions) ParseLocator(lString string) error {
 		return err
 	}
 
+	if components.Hostname != "" {
+		bo.hostname = components.Hostname
+	}
+
 	if components.Branch != "" {
 		bo.branch = components.Branch
 	}
@@ -123,20 +137,42 @@ func (bo *branchOptions) EnsureDefaults() error {
 		return nil
 	}
 
-	t := githubToken
+	// Detect platform based on hostname
+	hostname := bo.hostname
+	if hostname == "" {
+		hostname = "github.com"
+	}
+
+	var branch string
 	var err error
-	if t == "" {
-		t, err = auth.New().ReadToken()
+
+	if strings.Contains(strings.ToLower(hostname), "gitlab") {
+		// Use GitLab client
+		projectID := fmt.Sprintf("%s/%s", bo.owner, bo.repository)
+		glc, err := glcontrol.NewGitLabConnectionWithHostname(projectID, "", hostname)
 		if err != nil {
-			return err
+			return fmt.Errorf("creating GitLab connection: %w", err)
+		}
+		branch, err = glc.GetDefaultBranch(context.Background())
+		if err != nil {
+			return fmt.Errorf("reading repository default branch: %w", err)
+		}
+	} else {
+		// Use GitHub client
+		t := githubToken
+		if t == "" {
+			t, err = auth.New().ReadToken()
+			if err != nil {
+				return err
+			}
+		}
+		gcx := ghcontrol.NewGhConnection(bo.owner, bo.repository, "").WithAuthToken(t)
+		branch, err = gcx.GetDefaultBranch(context.Background())
+		if err != nil {
+			return fmt.Errorf("reading repository default branch: %w", err)
 		}
 	}
 
-	gcx := ghcontrol.NewGhConnection(bo.owner, bo.repository, "").WithAuthToken(t)
-	branch, err := gcx.GetDefaultBranch(context.Background())
-	if err != nil {
-		return fmt.Errorf("reading repository default branch: %w", err)
-	}
 	bo.branch = branch
 	return nil
 }
@@ -174,6 +210,10 @@ func (co *commitOptions) ParseLocator(lString string) error {
 		return err
 	}
 
+	if components.Hostname != "" {
+		co.hostname = components.Hostname
+	}
+
 	if components.Commit != "" {
 		co.commit = components.Commit
 	}
@@ -191,19 +231,40 @@ func (co *commitOptions) EnsureDefaults() error {
 	}
 
 	if co.commit == "" {
-		t := githubToken
-		var err error
-		if t == "" {
-			t, err = auth.New().ReadToken()
-			if err != nil {
-				return err
-			}
+		// Detect platform based on hostname
+		hostname := co.hostname
+		if hostname == "" {
+			hostname = "github.com"
 		}
 
-		gcx := ghcontrol.NewGhConnection(co.owner, co.repository, "").WithAuthToken(t)
-		digest, err := gcx.GetLatestCommit(context.Background(), co.branch)
-		if err != nil {
-			return fmt.Errorf("fetching last commit from %q: %w", co.branch, err)
+		var digest string
+		var err error
+
+		if strings.Contains(strings.ToLower(hostname), "gitlab") {
+			// Use GitLab client
+			projectID := fmt.Sprintf("%s/%s", co.owner, co.repository)
+			glc, err := glcontrol.NewGitLabConnectionWithHostname(projectID, "", hostname)
+			if err != nil {
+				return fmt.Errorf("creating GitLab connection: %w", err)
+			}
+			digest, err = glc.GetLatestCommit(context.Background(), co.branch)
+			if err != nil {
+				return fmt.Errorf("fetching last commit from %q: %w", co.branch, err)
+			}
+		} else {
+			// Use GitHub client
+			t := githubToken
+			if t == "" {
+				t, err = auth.New().ReadToken()
+				if err != nil {
+					return err
+				}
+			}
+			gcx := ghcontrol.NewGhConnection(co.owner, co.repository, "").WithAuthToken(t)
+			digest, err = gcx.GetLatestCommit(context.Background(), co.branch)
+			if err != nil {
+				return fmt.Errorf("fetching last commit from %q: %w", co.branch, err)
+			}
 		}
 		co.commit = digest
 	}

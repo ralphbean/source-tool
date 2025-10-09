@@ -57,16 +57,22 @@ func createDefaultBranchPolicy(branch *models.Branch) *ProtectedBranch {
 	}
 }
 
-func getPolicyPath(repo *models.Repository) string {
+// GetPolicyPath returns the path to the policy file for a repository
+// within the source-policies repository
+func GetPolicyPath(repo *models.Repository) string {
 	ownerName, repoName, err := repo.PathAsGitHubOwnerName()
 	if err != nil {
 		return ""
 	}
-	return fmt.Sprintf("policy/github.com/%s/%s/source-policy.json", ownerName, repoName)
+	hostname := repo.Hostname
+	if hostname == "" {
+		hostname = "github.com"
+	}
+	return fmt.Sprintf("policy/%s/%s/%s/source-policy.json", hostname, ownerName, repoName)
 }
 
 func getPolicyRepoPath(pathToClone string, repo *models.Repository) string {
-	return fmt.Sprintf("%s/%s", pathToClone, getPolicyPath(repo))
+	return fmt.Sprintf("%s/%s", pathToClone, GetPolicyPath(repo))
 }
 
 func (pe *PolicyEvaluator) getGitHubClient() (*github.Client, error) {
@@ -81,11 +87,15 @@ func (pe *PolicyEvaluator) getGitHubClient() (*github.Client, error) {
 
 // getRemotePolicy fetches a policy using the GitHub API
 // If we can't find a policy we return a nil policy.
+// Note: Policies are always stored in github.com/slsa-framework/source-policies
+// but the path within that repo reflects the actual repository hostname.
 func (pe *PolicyEvaluator) getRemotePolicy(ctx context.Context, repo *models.Repository) (*RepoPolicy, string, error) {
-	path := getPolicyPath(repo)
+	path := GetPolicyPath(repo)
 	client, err := pe.getGitHubClient()
 	if err != nil {
-		return nil, "", err
+		// If we can't get a GitHub client (no token), treat as "no policy found"
+		// This allows GitLab repos to work without GitHub authentication
+		return nil, "", nil
 	}
 
 	policyContents, _, resp, err := client.Repositories.GetContents(ctx, SourcePolicyRepoOwner, SourcePolicyRepo, path, nil)
@@ -175,7 +185,7 @@ func (pe *PolicyEvaluator) checkLocalDir(ctx context.Context, repo *models.Repos
 		return fmt.Errorf("checking remote policy: %w", err)
 	}
 	if rp != nil {
-		return fmt.Errorf("policy already exists remotely for %s", getPolicyPath(repo))
+		return fmt.Errorf("policy already exists remotely for %s", GetPolicyPath(repo))
 	}
 	return nil
 }
