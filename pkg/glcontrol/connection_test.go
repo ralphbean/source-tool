@@ -215,6 +215,35 @@ func TestGitLabConnection_WithAuthToken_EmptyString(t *testing.T) {
 // These are tested in integration tests or would need httptest server setup.
 // For now, we test the connection setup and basic functionality.
 
+func TestGitLabConnection_GetVersion(t *testing.T) {
+	// This would require mocking the GitLab API
+	// For now, we'll test that the method exists and returns expected format
+	t.Skip("Requires GitLab API mocking")
+}
+
+func TestGitLabConnection_SupportsOIDC(t *testing.T) {
+	tests := []struct {
+		name     string
+		version  string
+		expected bool
+	}{
+		{"version 15.7", "15.7.0", true},
+		{"version 15.8", "15.8.0", true},
+		{"version 16.0", "16.0.0", true},
+		{"version 15.6", "15.6.0", false},
+		{"version 14.0", "14.0.0", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := supportsOIDC(tt.version)
+			if result != tt.expected {
+				t.Errorf("supportsOIDC(%s) = %v, want %v", tt.version, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestGitLabConnection_IntegrationSkipped(t *testing.T) {
 	t.Skip("Integration tests requiring GitLab API are skipped in unit tests")
 

@@ -7,6 +7,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
@@ -139,4 +141,54 @@ func (glc *GitLabConnection) GetDefaultBranch(ctx context.Context) (string, erro
 	}
 
 	return project.DefaultBranch, nil
+}
+
+// supportsOIDC checks if a GitLab version supports OIDC id_tokens
+// OIDC support was added in GitLab 15.7
+func supportsOIDC(version string) bool {
+	// Parse version string (e.g., "15.7.0" -> 15.7)
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return false
+	}
+
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+
+	// OIDC added in 15.7
+	if major > 15 {
+		return true
+	}
+	if major == 15 && minor >= 7 {
+		return true
+	}
+
+	return false
+}
+
+// GetVersion retrieves the GitLab instance version
+func (glc *GitLabConnection) GetVersion(ctx context.Context) (string, error) {
+	version, _, err := glc.Client().Version.GetVersion()
+	if err != nil {
+		return "", fmt.Errorf("getting GitLab version: %w", err)
+	}
+
+	return version.Version, nil
+}
+
+// SupportsOIDC checks if the GitLab instance supports OIDC
+func (glc *GitLabConnection) SupportsOIDC(ctx context.Context) (bool, error) {
+	version, err := glc.GetVersion(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return supportsOIDC(version), nil
 }
