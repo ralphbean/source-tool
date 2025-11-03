@@ -266,6 +266,22 @@ func (b *Backend) ConfigureControls(r *models.Repository, branches []*models.Bra
 					return fmt.Errorf("enabling branch protection: %w", err)
 				}
 			}
+		case models.CONFIG_GEN_PROVENANCE:
+			// Check if MR already exists
+			mr, err := b.FindPipelineMR(ctx, r)
+			if err != nil {
+				return fmt.Errorf("checking for existing pipeline MR: %w", err)
+			}
+
+			if mr != nil {
+				log.Printf("Pipeline MR already exists")
+				continue
+			}
+
+			// Create new MR
+			if _, err := b.CreatePipelineMR(r, branches); err != nil {
+				return fmt.Errorf("creating pipeline MR: %w", err)
+			}
 		case models.CONFIG_TAG_RULES:
 			glc, err := b.getGitLabConnection(r, "")
 			if err != nil {

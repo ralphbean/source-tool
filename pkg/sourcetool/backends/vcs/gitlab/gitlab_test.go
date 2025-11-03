@@ -217,6 +217,30 @@ func TestControlConfigurationDescr_NilRepository(t *testing.T) {
 	}
 }
 
+func TestControlConfigurationDescr_GenProvenance(t *testing.T) {
+	backend := New()
+	branch := &models.Branch{
+		Name: "main",
+		Repository: &models.Repository{
+			Path: "test/project",
+		},
+	}
+
+	descr := backend.ControlConfigurationDescr(branch, models.CONFIG_GEN_PROVENANCE)
+
+	if !strings.Contains(strings.ToLower(descr), "merge request") {
+		t.Errorf("Expected description to mention merge request, got: %s", descr)
+	}
+
+	if !strings.Contains(strings.ToLower(descr), "provenance") {
+		t.Errorf("Expected description to mention provenance, got: %s", descr)
+	}
+
+	if !strings.Contains(descr, "test/project") {
+		t.Errorf("Expected description to contain repo path, got: %s", descr)
+	}
+}
+
 func TestGetRecommendedAction(t *testing.T) {
 	backend := New()
 	repo := &models.Repository{Path: "test/project"}
@@ -386,6 +410,26 @@ func TestControlPrecheck(t *testing.T) {
 // - Or using integration tests with a real GitLab instance
 //
 // These are skipped in unit tests but should be covered in integration tests.
+
+func TestConfigureControls_GenProvenance_Unsupported(t *testing.T) {
+	// For now, CONFIG_GEN_PROVENANCE should return unsupported
+	backend := New()
+	repo := &models.Repository{
+		Hostname: "gitlab.com",
+		Path:     "test/project",
+	}
+	branch := &models.Branch{
+		Name:       "main",
+		Repository: repo,
+	}
+
+	err := backend.ConfigureControls(repo, []*models.Branch{branch}, []models.ControlConfiguration{models.CONFIG_GEN_PROVENANCE})
+
+	// Currently unimplemented, so should error
+	if err == nil {
+		t.Error("Expected error for unimplemented CONFIG_GEN_PROVENANCE")
+	}
+}
 
 func TestConfigureControls_BranchProtectionAlreadyEnabled(t *testing.T) {
 	t.Skip("This test would require mocking the GitLab API to return 'already exists' errors")
