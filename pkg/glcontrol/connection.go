@@ -31,16 +31,22 @@ func NewGitLabConnectionWithHostname(projectID interface{}, ref, hostname string
 		return nil, fmt.Errorf("GITLAB_TOKEN environment variable is not set")
 	}
 
+	opts := defaultOptions
+	retryMax := int(opts.ApiRetries)
+
 	var client *gitlab.Client
 	var err error
 
 	if hostname != "" && hostname != "gitlab.com" {
 		// Use custom GitLab instance
 		baseURL := fmt.Sprintf("https://%s/api/v4", hostname)
-		client, err = gitlab.NewClient(token, gitlab.WithBaseURL(baseURL))
+		client, err = gitlab.NewClient(token,
+			gitlab.WithBaseURL(baseURL),
+			gitlab.WithCustomRetryMax(retryMax))
 	} else {
 		// Use gitlab.com (default)
-		client, err = gitlab.NewClient(token)
+		client, err = gitlab.NewClient(token,
+			gitlab.WithCustomRetryMax(retryMax))
 	}
 
 	if err != nil {
@@ -77,11 +83,14 @@ func (glc *GitLabConnection) GetFullRef() string {
 // If the token is the empty string this is a no-op.
 func (glc *GitLabConnection) WithAuthToken(token string) (*GitLabConnection, error) {
 	if token != "" {
-		client, err := gitlab.NewClient(token)
+		retryMax := int(glc.Options.ApiRetries)
+		client, err := gitlab.NewClient(token,
+			gitlab.WithCustomRetryMax(retryMax))
 		if err != nil {
 			return nil, fmt.Errorf("creating GitLab client with token: %w", err)
 		}
 		glc.client = client
+		glc.Options.accessToken = token
 	}
 	return glc, nil
 }
