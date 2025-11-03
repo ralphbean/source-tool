@@ -144,24 +144,59 @@ func (glc *GitLabConnection) computeContinuityControl(ctx context.Context, pb *g
 	}, nil
 }
 
+// getApprovalSettingTimestamp queries audit events to find when a specific approval
+// setting was last changed to the desired state.
+func (glc *GitLabConnection) getApprovalSettingTimestamp(ctx context.Context, eventType string, desiredValue string) (*time.Time, error) {
+	opts := &gitlab.ListAuditEventsOptions{
+		ListOptions: gitlab.ListOptions{
+			PerPage: 100,
+		},
+	}
+
+	events, _, err := glc.Client().AuditEvents.ListProjectAuditEvents(glc.projectID, opts)
+	if err != nil {
+		return nil, fmt.Errorf("fetching audit events: %w", err)
+	}
+
+	// Find the most recent event where the setting was changed to the desired value
+	for _, event := range events {
+		if event.Details.EventName == eventType {
+			// Check if the change was to the desired value
+			if event.Details.To == desiredValue {
+				return event.CreatedAt, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("no audit event found for %s with value %s", eventType, desiredValue)
+}
+
 // computeReviewControl checks for merge request approval requirements.
+// Following SLSA Level 4 requirements for two-party review, this checks:
+// 1. At least one approval required
+// 2. Author cannot self-approve
+// 3. Committers cannot approve their own commits
+// 4. Approvals reset on push (stale reviews dismissed)
 func (glc *GitLabConnection) computeReviewControl(ctx context.Context, pb *gitlab.ProtectedBranch) (*provenance.Control, error) {
 	if pb == nil {
 		return nil, nil
 	}
 
-	// Check if merge requests are required and approvals are configured
-	// In GitLab, this is controlled by the MergeAccessLevels
-	// We need to ensure only certain roles can merge and approvals are required
+	// Get approval configuration
+	approvalConfig, _, err := glc.Client().Projects.GetApprovalConfiguration(glc.projectID)
+	if err != nil {
+		// Approval configuration might not be set up
+		return nil, nil
+	}
 
-	// Get project approval settings
+	// Get approval rules
 	approvalRules, _, err := glc.Client().Projects.GetProjectApprovalRules(glc.projectID, nil)
 	if err != nil {
 		// Approval rules might not be configured
 		return nil, nil
 	}
 
-	// Check if there's at least one approval rule with required approvals
+	// Check 1: At least one approval required
 	hasApprovalRule := false
 	for _, rule := range approvalRules {
 		if rule.ApprovalsRequired > 0 {
@@ -169,17 +204,66 @@ func (glc *GitLabConnection) computeReviewControl(ctx context.Context, pb *gitla
 			break
 		}
 	}
-
 	if !hasApprovalRule {
+		log.Printf("No approval rules with required approvals, cannot be L4")
 		return nil, nil
 	}
 
-	// Conservative approach: use current time
-	since := time.Now()
+	// Check 2: Prevent author self-approval
+	// Note: MergeRequestsAuthorApproval = true means author CAN approve (bad)
+	if approvalConfig.MergeRequestsAuthorApproval {
+		log.Printf("MR author can self-approve, cannot be L4")
+		return nil, nil
+	}
+
+	// Check 3: Prevent committer approval
+	// Note: MergeRequestsDisableCommittersApproval = true means committers CANNOT approve (good)
+	if !approvalConfig.MergeRequestsDisableCommittersApproval {
+		log.Printf("Committers can approve their own MRs, cannot be L4")
+		return nil, nil
+	}
+
+	// Check 4: Reset approvals on push
+	if !approvalConfig.ResetApprovalsOnPush {
+		log.Printf("Approvals not reset on push, cannot be L4")
+		return nil, nil
+	}
+
+	// All checks passed - now find when these controls were enabled
+	timestamps := []*time.Time{}
+
+	// Find when author approval was disabled (setting = false means disabled)
+	ts, err := glc.getApprovalSettingTimestamp(ctx, "allow_author_approval_updated", "false")
+	if err != nil {
+		return nil, fmt.Errorf("cannot verify when author approval was disabled: %w", err)
+	}
+	timestamps = append(timestamps, ts)
+
+	// Find when committer approval was disabled (setting = true means disabled)
+	ts, err = glc.getApprovalSettingTimestamp(ctx, "allow_committer_approval_updated", "true")
+	if err != nil {
+		return nil, fmt.Errorf("cannot verify when committer approval was disabled: %w", err)
+	}
+	timestamps = append(timestamps, ts)
+
+	// Find when reset approvals on push was enabled (setting = true means enabled)
+	ts, err = glc.getApprovalSettingTimestamp(ctx, "retain_approvals_on_push_updated", "true")
+	if err != nil {
+		return nil, fmt.Errorf("cannot verify when reset approvals was enabled: %w", err)
+	}
+	timestamps = append(timestamps, ts)
+
+	// Find the most recent (latest) timestamp - this is when ALL controls became active
+	var mostRecentTimestamp *time.Time
+	for _, ts := range timestamps {
+		if mostRecentTimestamp == nil || ts.After(*mostRecentTimestamp) {
+			mostRecentTimestamp = ts
+		}
+	}
 
 	return &provenance.Control{
 		Name:  slsa.ReviewEnforced.String(),
-		Since: timestamppb.New(since),
+		Since: timestamppb.New(*mostRecentTimestamp),
 	}, nil
 }
 
