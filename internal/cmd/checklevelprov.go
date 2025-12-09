@@ -95,7 +95,7 @@ func doCheckLevelProv(checkLevelProvArgs *checkLevelProvOpts) error {
 
 	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
 		// GitLab repository
-		glc, err := glcontrol.NewGitLabConnection(repo, branch.FullRef())
+		glc, err := glcontrol.NewGitLabConnectionWithHostname(repo.Path, branch.FullRef(), repo.Hostname)
 		if err != nil {
 			return fmt.Errorf("creating GitLab connection: %w", err)
 		}
