@@ -50,7 +50,12 @@ func getOIDCPipelineTemplate() string {
   script:
     - |
       # Install sourcetool
-      go install github.com/slsa-framework/source-tool@latest
+      #go install github.com/slsa-framework/source-tool@latest
+      git clone https://github.com/ralphbean/source-tool -b gitlab-support
+      cd source-tool/
+      go build .
+      cd ..
+      mv source-tool/source-tool sourcetool
 
       # Strip the CI_JOB_TOKEN from the repository url
       ANON_REPOSITORY="${CI_REPOSITORY_URL/gitlab-ci-token:\$CI_JOB_TOKEN@/}"
@@ -58,14 +63,14 @@ func getOIDCPipelineTemplate() string {
       # Generate provenance based on push type
       if [ -n "$CI_COMMIT_TAG" ]; then
         # Tag push
-        sourcetool checktag \
+        ./sourcetool checktag \
           --commit $CI_COMMIT_SHA \
           --tag_name $CI_COMMIT_TAG \
           --output_signed_bundle bundle.intoto.jsonl \
 	  $ANON_REPOSITORY
       else
         # Branch push
-        sourcetool checklevelprov \
+        ./sourcetool checklevelprov \
           --commit $CI_COMMIT_SHA \
           --branch $CI_COMMIT_REF_NAME \
           --output_signed_bundle bundle.intoto.jsonl \
