@@ -136,7 +136,7 @@ Alternatively, to enable each control individually use: sourcetool setup control
 			// At this point options are valid, no help needed.
 			cmd.SilenceUsage = true
 
-			authenticator, err := CheckAuth()
+			authenticator, err := CheckAuthWithHostname(opts.hostname)
 			if err != nil {
 				return err
 			}
@@ -336,7 +336,7 @@ a fork of the repository you want to protect.
 				return err
 			}
 
-			authenticator, err := CheckAuth()
+			authenticator, err := CheckAuthWithHostname(opts.hostname)
 			if err != nil {
 				return err
 			}

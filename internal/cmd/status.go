@@ -144,6 +144,12 @@ sourcetool status myorg/myrepo@mybranch
 					fmt.Println()
 				case slsa.StateNotEnabled:
 					fmt.Println("🚫")
+				case slsa.StateNotSupported:
+					fmt.Print("🔮")
+					if c.Message != "" {
+						fmt.Printf(" %s", w2(c.Message))
+					}
+					fmt.Println()
 				}
 			}
 
@@ -170,6 +176,12 @@ sourcetool status myorg/myrepo@mybranch
 					fmt.Print("⏳")
 					if policyControlStatus.Message != "" {
 						fmt.Printf(" (%s)", policyControlStatus.Message)
+					}
+					fmt.Println()
+				case slsa.StateNotSupported:
+					fmt.Print("🔮")
+					if policyControlStatus.Message != "" {
+						fmt.Printf(" %s", w2(policyControlStatus.Message))
 					}
 					fmt.Println()
 				}

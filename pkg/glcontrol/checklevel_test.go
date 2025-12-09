@@ -62,11 +62,11 @@ func TestGLControlStatus_AddControl(t *testing.T) {
 	pushTime := baseTime.Add(-1 * time.Hour) // Commit was pushed 1 hour ago
 
 	tests := []struct {
-		name            string
-		commitPushTime  time.Time
-		controlSince    time.Time
-		expectAdded     bool
-		description     string
+		name           string
+		commitPushTime time.Time
+		controlSince   time.Time
+		expectAdded    bool
+		description    string
 	}{
 		{
 			name:           "control enabled before commit",

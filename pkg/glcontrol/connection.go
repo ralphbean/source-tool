@@ -17,10 +17,10 @@ const tokenEnvVar = "GITLAB_TOKEN" //nolint:gosec // These are not credentials
 
 // Manages a connection to a GitLab repository.
 type GitLabConnection struct {
-	client           *gitlab.Client
-	Options          Options
-	projectID        interface{} // Can be string (path with namespace) or int (project ID)
-	ref              string
+	client    *gitlab.Client
+	Options   Options
+	projectID interface{} // Can be string (path with namespace) or int (project ID)
+	ref       string
 }
 
 func NewGitLabConnection(projectID interface{}, ref string) (*GitLabConnection, error) {

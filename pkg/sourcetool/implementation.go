@@ -27,11 +27,13 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/sourcetool/options"
 )
 
+const defaultGitHubHostname = "github.com"
+
 // toolImplementation defines the mockable implementation of source tool
 //
 //counterfeiter:generate . toolImplementation
 type toolImplementation interface {
-	VerifyOptionsForFullOnboard(*auth.Authenticator, *options.Options) error
+	VerifyOptionsForFullOnboard(*auth.Authenticator, *options.Options, *models.Repository) error
 	CheckPolicyFork(*options.Options) error
 	CreatePolicyPR(*auth.Authenticator, *options.Options, *models.Repository, *policy.RepoPolicy) (*models.PullRequest, error)
 	CheckForks(*options.Options) error
@@ -74,7 +76,7 @@ func (impl *defaultToolImplementation) GetVcsBackend(r *models.Repository) (mode
 	// Detect platform based on hostname
 	hostname := strings.ToLower(r.Hostname)
 	if hostname == "" {
-		hostname = "github.com" // default to GitHub for backward compatibility
+		hostname = defaultGitHubHostname // default to GitHub for backward compatibility
 	}
 
 	// Check if it's GitLab
@@ -88,7 +90,19 @@ func (impl *defaultToolImplementation) GetVcsBackend(r *models.Repository) (mode
 
 // VerifyOptions checks options are in good shape to run
 // TODO(puerco): To be completed
-func (impl *defaultToolImplementation) VerifyOptionsForFullOnboard(a *auth.Authenticator, opts *options.Options) error {
+func (impl *defaultToolImplementation) VerifyOptionsForFullOnboard(a *auth.Authenticator, opts *options.Options, r *models.Repository) error {
+	// For GitLab, skip the WhoAmI check since it uses GITLAB_TOKEN directly
+	hostname := ""
+	if r != nil {
+		hostname = strings.ToLower(r.Hostname)
+	}
+	if hostname != "" && strings.Contains(hostname, "gitlab") {
+		// GitLab authentication is handled via GITLAB_TOKEN environment variable
+		// The connection will fail later if the token is missing or invalid
+		return nil
+	}
+
+	// For GitHub, verify authentication
 	errs := []error{}
 	uid, err := a.WhoAmI()
 	if err != nil {
@@ -119,7 +133,7 @@ func (impl *defaultToolImplementation) CreatePolicyPR(a *auth.Authenticator, opt
 	// Get the hostname for the repository
 	hostname := r.Hostname
 	if hostname == "" {
-		hostname = "github.com"
+		hostname = defaultGitHubHostname
 	}
 
 	// Check the repository clone in the user's account is ready to push
@@ -150,7 +164,7 @@ func (impl *defaultToolImplementation) CreatePolicyPR(a *auth.Authenticator, opt
 	}
 
 	policyRepo := &models.Repository{
-		Hostname:      "github.com",
+		Hostname:      defaultGitHubHostname,
 		Path:          fmt.Sprintf("%s/%s", policyRepoOwner, policyRepoName),
 		DefaultBranch: "main",
 	}
@@ -194,7 +208,7 @@ func (impl *defaultToolImplementation) CheckForks(opts *options.Options) error {
 func (impl *defaultToolImplementation) CheckPolicyFork(opts *options.Options) error {
 	manager := repo.NewPullRequestManager()
 	if _, err := manager.CheckFork(&models.Repository{
-		Hostname: "github.com", Path: opts.PolicyRepo,
+		Hostname: defaultGitHubHostname, Path: opts.PolicyRepo,
 	}, ""); err != nil {
 		return err
 	}
@@ -279,7 +293,7 @@ func (impl *defaultToolImplementation) GetPolicyStatus(
 
 	host := r.Hostname
 	if host == "" {
-		host = "github.com"
+		host = defaultGitHubHostname
 	}
 	prNr, err := impl.SearchPullRequest(ctx, a, &models.Repository{
 		Hostname: host,

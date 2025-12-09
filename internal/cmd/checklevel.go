@@ -14,6 +14,8 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/attest"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
 	"github.com/slsa-framework/source-tool/pkg/policy"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type checkLevelOpts struct {
@@ -79,32 +81,70 @@ This is meant to be run within the corresponding GitHub Actions workflow.`,
 }
 
 func doCheckLevel(cla *checkLevelOpts) error {
-	ghconnection := ghcontrol.NewGhConnection(cla.owner, cla.repository, ghcontrol.BranchToFullRef(cla.branch)).WithAuthToken(githubToken)
-	ghconnection.Options.AllowMergeCommits = cla.allowMergeCommits
-
 	ctx := context.Background()
-	controlStatus, err := ghconnection.GetBranchControlsAtCommit(ctx, cla.commit, ghconnection.GetFullRef())
+
+	// Get repository and branch
+	repo := cla.GetRepository()
+	branch := cla.GetBranch()
+
+	// Create authenticator based on hostname
+	authenticator, err := CheckAuthWithHostname(cla.hostname)
 	if err != nil {
 		return err
 	}
+
+	// Create sourcetool with backend abstraction
+	srctool, err := sourcetool.New(
+		sourcetool.WithAuthenticator(authenticator),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Get the VCS backend for this repository
+	backend, err := srctool.GetVcsBackend(repo)
+	if err != nil {
+		return fmt.Errorf("getting VCS backend: %w", err)
+	}
+
+	// Set allow merge commits if it's a GitHub backend
+	// TODO: Extend this to other backends when they support it
+	if ghBackend, ok := backend.(interface{ SetAllowMergeCommits(bool) }); ok {
+		ghBackend.SetAllowMergeCommits(cla.allowMergeCommits)
+	}
+
+	// Get controls at the specified commit
+	commit := &models.Commit{SHA: cla.commit}
+	controlStatus, err := backend.GetBranchControlsAtCommit(ctx, repo, branch, commit)
+	if err != nil {
+		return err
+	}
+
+	// Evaluate against policy
 	pe := policy.NewPolicyEvaluator()
 	pe.UseLocalPolicy = cla.useLocalPolicy
-	verifiedLevels, policyPath, err := pe.EvaluateControl(ctx, cla.GetRepository(), cla.GetBranch(), controlStatus)
+	verifiedLevels, policyPath, err := pe.EvaluateControl(ctx, repo, branch, controlStatus)
 	if err != nil {
 		return err
 	}
 	fmt.Print(verifiedLevels)
 
-	unsignedVsa, err := attest.CreateUnsignedSourceVsa(ghconnection.GetRepoUri(), ghconnection.GetFullRef(), cla.commit, verifiedLevels, policyPath)
+	// Create unsigned VSA
+	repoUri := repo.GetHttpURL()
+	fullRef := ghcontrol.BranchToFullRef(branch.Name)
+	unsignedVsa, err := attest.CreateUnsignedSourceVsa(repoUri, fullRef, cla.commit, verifiedLevels, policyPath)
 	if err != nil {
 		return err
 	}
+
+	// Write unsigned VSA if requested
 	if cla.outputUnsignedVsa != "" {
 		if err := os.WriteFile(cla.outputUnsignedVsa, []byte(unsignedVsa), 0o644); err != nil { //nolint:gosec
 			return err
 		}
 	}
 
+	// Sign and write VSA if requested
 	if cla.outputVsa != "" {
 		// This will output in the sigstore bundle format.
 		signedVsa, err := attest.Sign(unsignedVsa)

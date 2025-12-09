@@ -4,10 +4,10 @@
 package gitlab
 
 const (
-	pipelinePathOIDC  = ".gitlab/slsa-source.yml"
+	pipelinePathOIDC   = ".gitlab/slsa-source.yml"
 	pipelinePathCosign = ".gitlab/slsa-source.yml"
-	cosignPubPath     = ".gitlab/cosign.pub"
-	gitlabCIPath      = ".gitlab-ci.yml"
+	cosignPubPath      = ".gitlab/cosign.pub"
+	gitlabCIPath       = ".gitlab-ci.yml"
 
 	pipelineCommitMessage = "Add SLSA Source Provenance Pipeline"
 
@@ -76,7 +76,8 @@ func getOIDCPipelineTemplate() string {
       - bundle.intoto.jsonl
     expire_in: 30 days
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
 `
 }
 
@@ -138,7 +139,8 @@ func getCosignPipelineTemplate() string {
       - bundle.intoto.jsonl.sig
     expire_in: 30 days
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+      when: on_success
 `
 }
 
@@ -149,8 +151,5 @@ include:
 
 slsa-source-provenance:
   extends: .slsa-source
-  only:
-    - branches
-    - tags
 `
 }

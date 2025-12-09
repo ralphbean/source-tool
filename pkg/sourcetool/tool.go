@@ -51,6 +51,11 @@ type Tool struct {
 	impl          toolImplementation
 }
 
+// GetVcsBackend returns the VCS backend for the given repository
+func (t *Tool) GetVcsBackend(r *models.Repository) (models.VcsBackend, error) {
+	return t.impl.GetVcsBackend(r)
+}
+
 // GetRepoControls returns the controls that are enabled in a repository branch.
 func (t *Tool) GetBranchControls(r *models.Repository, branch *models.Branch) (*slsa.ControlSetStatus, error) {
 	ctx := context.Background()
@@ -83,7 +88,7 @@ func (t *Tool) OnboardRepository(repo *models.Repository, branches []*models.Bra
 		return fmt.Errorf("getting VCS backend: %w", err)
 	}
 
-	if err := t.impl.VerifyOptionsForFullOnboard(t.Authenticator, &t.Options); err != nil {
+	if err := t.impl.VerifyOptionsForFullOnboard(t.Authenticator, &t.Options, repo); err != nil {
 		return fmt.Errorf("verifying options: %w", err)
 	}
 

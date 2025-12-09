@@ -37,9 +37,10 @@ const (
 	AllowedOrgPropPrefix                     = "ORG_SOURCE_"
 
 	// Control lifecycle states
-	StateNotEnabled ControlState = "not_enabled"
-	StateInProgress ControlState = "in_progress"
-	StateActive     ControlState = "active"
+	StateNotEnabled   ControlState = "not_enabled"
+	StateInProgress   ControlState = "in_progress"
+	StateActive       ControlState = "active"
+	StateNotSupported ControlState = "not_supported"
 )
 
 // AllLevelControls lists all the SLSA controls managed by sourcetool

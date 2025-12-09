@@ -471,10 +471,27 @@ func TestEvaluateControl_Success(t *testing.T) {
 		},
 	}
 
+	// Helper to create ControlSetStatus from controls and time
+	makeControlSetStatus := func(commitTime time.Time, controls slsa.Controls) *slsa.ControlSetStatus {
+		css := &slsa.ControlSetStatus{
+			Time:     commitTime,
+			Controls: []slsa.ControlStatus{},
+		}
+		for _, ctrl := range controls {
+			since := ctrl.GetSince().AsTime()
+			css.Controls = append(css.Controls, slsa.ControlStatus{
+				Name:  slsa.ControlName(ctrl.GetName()),
+				State: slsa.StateActive,
+				Since: &since,
+			})
+		}
+		return css
+	}
+
 	tests := []struct {
 		name               string
 		policyContent      any // RepoPolicy or string for malformed
-		controlStatus      *ghcontrol.GhControlStatus
+		controlStatus      *slsa.ControlSetStatus
 		ghConnBranch       string // Branch for GitHub connection
 		expectedLevels     slsa.SourceVerifiedLevels
 		expectedPolicyPath string
@@ -482,10 +499,10 @@ func TestEvaluateControl_Success(t *testing.T) {
 		{
 			name:          "Commit time before policy Since -> SLSA Level 1",
 			policyContent: &fullPolicy,
-			controlStatus: &ghcontrol.GhControlStatus{
-				CommitPushTime: earlierFixedTime.AsTime(), // Commit time before policyL3ReviewTagsNow.Since (now)
-				Controls:       slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
-			},
+			controlStatus: makeControlSetStatus(
+				earlierFixedTime.AsTime(), // Commit time before policyL3ReviewTagsNow.Since (now)
+				slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
+			),
 			ghConnBranch:       "main",
 			expectedLevels:     slsa.SourceVerifiedLevels{slsa.ControlName(slsa.SlsaSourceLevel1)}, // Expect L1 because commit time is before policy enforcement
 			expectedPolicyPath: "TEMP_POLICY_FILE_PATH",                                            // Placeholder, will be replaced by actual temp file path
@@ -493,10 +510,10 @@ func TestEvaluateControl_Success(t *testing.T) {
 		{
 			name:          "Commit time after policy Since, controls meet policy -> Expected levels",
 			policyContent: &fullPolicy,
-			controlStatus: &ghcontrol.GhControlStatus{
-				CommitPushTime: laterFixedTime.AsTime(),
-				Controls:       slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
-			},
+			controlStatus: makeControlSetStatus(
+				laterFixedTime.AsTime(),
+				slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
+			),
 			ghConnBranch:       "main",
 			expectedLevels:     slsa.SourceVerifiedLevels{slsa.ControlName(slsa.SlsaSourceLevel3), slsa.ReviewEnforced, slsa.TagHygiene, "ORG_SOURCE_TESTED"},
 			expectedPolicyPath: "TEMP_POLICY_FILE_PATH",
@@ -504,10 +521,10 @@ func TestEvaluateControl_Success(t *testing.T) {
 		{
 			name:          "Branch not in policy, commit after default policy since -> Default policy (SLSA L1)",
 			policyContent: &basicPolicy, // main is in policy, but we test "develop"
-			controlStatus: &ghcontrol.GhControlStatus{
-				CommitPushTime: laterFixedTime.AsTime(),
-				Controls:       slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
-			},
+			controlStatus: makeControlSetStatus(
+				laterFixedTime.AsTime(),
+				slsa.Controls{continuityEnforcedEarlier, provenanceAvailableEarlier, reviewEnforcedEarlier, tagHygieneEarlier, orgTestControl},
+			),
 			ghConnBranch:       "develop",                                                          // Testing "develop" branch
 			expectedLevels:     slsa.SourceVerifiedLevels{slsa.ControlName(slsa.SlsaSourceLevel1)}, // Default is L1
 			expectedPolicyPath: "DEFAULT",
@@ -567,30 +584,47 @@ func TestEvaluateControl_Failure(t *testing.T) {
 		},
 	}
 
+	// Helper to create ControlSetStatus from controls and time
+	makeControlSetStatus := func(commitTime time.Time, controls slsa.Controls) *slsa.ControlSetStatus {
+		css := &slsa.ControlSetStatus{
+			Time:     commitTime,
+			Controls: []slsa.ControlStatus{},
+		}
+		for _, ctrl := range controls {
+			since := ctrl.GetSince().AsTime()
+			css.Controls = append(css.Controls, slsa.ControlStatus{
+				Name:  slsa.ControlName(ctrl.GetName()),
+				State: slsa.StateActive,
+				Since: &since,
+			})
+		}
+		return css
+	}
+
 	tests := []struct {
 		name                  string
 		policyContent         any // RepoPolicy or string for malformed
-		controlStatus         *ghcontrol.GhControlStatus
+		controlStatus         *slsa.ControlSetStatus
 		ghConnBranch          string // Branch for GitHub connection
 		expectedErrorContains string
 	}{
 		{
 			name:          "Commit time after policy Since, controls DO NOT meet policy -> Error",
 			policyContent: &policyL3Review, // Requires L3, Review, Tags
-			controlStatus: &ghcontrol.GhControlStatus{
-				CommitPushTime: later.AsTime(),
-				Controls:       slsa.Controls{continuityEnforcedEarlier, tagHygieneEarlier}, // Only meets L2
-			},
+			controlStatus: makeControlSetStatus(
+				later.AsTime(),
+				slsa.Controls{continuityEnforcedEarlier, tagHygieneEarlier}, // Only meets L2
+			),
 			ghConnBranch:          "main",
 			expectedErrorContains: "but branch is only eligible for SLSA_SOURCE_LEVEL_2",
 		},
 		{
 			name:          "Malformed JSON -> Error",
 			policyContent: "not json",
-			controlStatus: &ghcontrol.GhControlStatus{
-				CommitPushTime: later.AsTime(),
-				Controls:       slsa.Controls{},
-			},
+			controlStatus: makeControlSetStatus(
+				later.AsTime(),
+				slsa.Controls{},
+			),
 			ghConnBranch:          "main",
 			expectedErrorContains: "syntax error (line 1:1): invalid value", // Error from json.Unmarshal
 		},

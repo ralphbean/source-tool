@@ -289,33 +289,23 @@ func (glc *GitLabConnection) computeRequiredPipelines(ctx context.Context, branc
 }
 
 // computeTagHygieneControl checks for tag protection.
+//
+// GitLab does not currently support the necessary features for SLSA tag immutability:
+// - No API to prevent tag updates/force-pushes (only deletion prevention exists)
+// - Protected Tags API lacks timestamps to verify "time in force" requirement
+// - No audit events for protected tag configuration changes
+//
+// SLSA requires BOTH deletion AND update prevention for tag immutability.
+// GitLab can only enforce deletion prevention via deny_delete_tag push rules.
+//
+// See: https://gitlab.com/gitlab-org/gitlab/-/issues/579382
 func (glc *GitLabConnection) computeTagHygieneControl(ctx context.Context) (*provenance.Control, error) {
-	// Get all protected tags
-	protectedTags, _, err := glc.Client().ProtectedTags.ListProtectedTags(glc.projectID, nil)
-	if err != nil {
-		return nil, fmt.Errorf("getting protected tags: %w", err)
-	}
-
-	// Check if there's a wildcard protection (e.g., "*" or "v*")
-	hasWildcardProtection := false
-	for _, tag := range protectedTags {
-		if tag.Name == "*" || strings.Contains(tag.Name, "*") {
-			hasWildcardProtection = true
-			break
-		}
-	}
-
-	if !hasWildcardProtection {
-		return nil, nil
-	}
-
-	// Conservative approach: use current time
-	since := time.Now()
-
-	return &provenance.Control{
-		Name:  slsa.TagHygiene.String(),
-		Since: timestamppb.New(since),
-	}, nil
+	// TAG_HYGIENE cannot be verified on GitLab until the platform supports
+	// tag update prevention and provides timestamps for protected tag rules.
+	// Returning nil indicates the control is not enabled/verifiable.
+	//
+	// See: https://gitlab.com/gitlab-org/gitlab/-/issues/579382
+	return nil, nil
 }
 
 // GetTagControls returns controls for tag protection.
@@ -366,6 +356,13 @@ func (glc *GitLabConnection) EnableBranchProtection(ctx context.Context, branchN
 }
 
 // EnableTagProtection adds tag protection for all tags.
+//
+// WARNING: This provides only PARTIAL protection and does NOT satisfy SLSA
+// TAG_HYGIENE requirements. GitLab protected tags only prevent deletion, not
+// updates/force-pushes. SLSA requires both deletion AND update prevention for
+// tag immutability, which GitLab cannot currently enforce.
+//
+// See: https://gitlab.com/gitlab-org/gitlab/-/issues/579382
 func (glc *GitLabConnection) EnableTagProtection(ctx context.Context) error {
 	// Check if wildcard protection exists
 	protectedTags, _, err := glc.Client().ProtectedTags.ListProtectedTags(glc.projectID, nil)
@@ -380,7 +377,8 @@ func (glc *GitLabConnection) EnableTagProtection(ctx context.Context) error {
 		}
 	}
 
-	// Protect all tags
+	// Protect all tags (NOTE: This only prevents deletion, not updates)
+	// See: https://gitlab.com/gitlab-org/gitlab/-/issues/579382
 	tagName := "*"
 	_, _, err = glc.Client().ProtectedTags.ProtectRepositoryTags(
 		glc.projectID,

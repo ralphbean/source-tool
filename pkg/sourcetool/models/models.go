@@ -130,6 +130,7 @@ type PullRequest struct {
 	Base   string // main
 	Number int
 	Repo   *Repository
+	URL    string
 }
 
 // Actor abstracts a user. For now it is intended to model both entities

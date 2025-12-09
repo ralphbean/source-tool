@@ -38,12 +38,14 @@ func (b *Backend) getGitLabConnection(repository *models.Repository, ref string)
 	}
 
 	// For GitLab, the project ID is the path with namespace (e.g., "group/project")
+	// TODO: Handle nested groups/subgroups (e.g., "org/suborg/repository")
+	// GitLab supports multi-level paths but this may need URL encoding
 	projectID := repository.Path
 
 	// Use the hostname from the repository for custom GitLab instances
 	hostname := repository.Hostname
 	if hostname == "" {
-		hostname = "gitlab.com"
+		hostname = defaultGitLabHostname
 	}
 
 	return glcontrol.NewGitLabConnectionWithHostname(projectID, ref, hostname)
@@ -106,6 +108,15 @@ func (b *Backend) GetBranchControlsAtCommit(ctx context.Context, r *models.Repos
 		}
 	}
 
+	// TAG_HYGIENE cannot be verified on GitLab due to platform limitations
+	// Set it to StateNotSupported to indicate this is not a configuration issue
+	for i := range status.Controls {
+		if status.Controls[i].Name == slsa.TagHygiene && status.Controls[i].State == slsa.StateNotEnabled {
+			status.Controls[i].State = slsa.StateNotSupported
+			status.Controls[i].Message = "Cannot be verified on GitLab - blocked on https://gitlab.com/gitlab-org/gitlab/-/issues/579382"
+		}
+	}
+
 	// Populate the recommended actions
 	for i := range status.Controls {
 		action := b.getRecommendedAction(r, branch, status.Controls[i].Name, status.Controls[i].State)
@@ -139,11 +150,11 @@ func (b *Backend) controlImplementationMessage(ctrlName slsa.ControlName) string
 // GitLab does not currently provide the necessary API features to verify SLSA Source
 // Level 2+ tag immutability requirements. Specifically:
 //
-// 1. GitLab has no mechanism to prevent tags from being force-pushed/updated to point
-//    to different commits (no deny_update_tag or deny_force_push_tag push rule).
+//  1. GitLab has no mechanism to prevent tags from being force-pushed/updated to point
+//     to different commits (no deny_update_tag or deny_force_push_tag push rule).
 //
-// 2. The Protected Tags API lacks timestamps (created_at, updated_at) needed to verify
-//    when tag protections were enabled ("time in force" requirement).
+//  2. The Protected Tags API lacks timestamps (created_at, updated_at) needed to verify
+//     when tag protections were enabled ("time in force" requirement).
 //
 // 3. No audit events exist for protected tag changes (tracked in GitLab #268122).
 //
@@ -209,7 +220,6 @@ func (b *Backend) GetLatestCommit(ctx context.Context, r *models.Repository, bra
 // getRecommendedAction returns the recommended action based on the
 // status of a SLSA control
 func (b *Backend) getRecommendedAction(r *models.Repository, _ *models.Branch, control slsa.ControlName, state slsa.ControlState) *slsa.ControlRecommendedAction {
-	//nolint:exhaustive // Not all drivers handle all controls
 	switch control {
 	case slsa.ProvenanceAvailable:
 		switch state {
@@ -222,7 +232,7 @@ func (b *Backend) getRecommendedAction(r *models.Repository, _ *models.Branch, c
 				Message: "Start generating provenance",
 				Command: fmt.Sprintf("sourcetool setup controls --config=%s %s", models.CONFIG_GEN_PROVENANCE, r.Path),
 			}
-		default:
+		case slsa.StateActive, slsa.StateNotSupported:
 			return nil
 		}
 	case slsa.ContinuityEnforced:
@@ -234,6 +244,10 @@ func (b *Backend) getRecommendedAction(r *models.Repository, _ *models.Branch, c
 		}
 		return nil
 	case slsa.TagHygiene:
+		// Don't provide recommended action for StateNotSupported (platform limitation)
+		if state == slsa.StateNotSupported {
+			return nil
+		}
 		if state == slsa.StateNotEnabled {
 			return &slsa.ControlRecommendedAction{
 				Message: "Enable tag push/update/delete protection",
@@ -241,9 +255,10 @@ func (b *Backend) getRecommendedAction(r *models.Repository, _ *models.Branch, c
 			}
 		}
 		return nil
-	default:
+	case slsa.ReviewEnforced, slsa.PolicyAvailable:
 		return nil
 	}
+	return nil
 }
 
 // ConfigureControls configures the specified controls for the repository
@@ -252,6 +267,9 @@ func (b *Backend) ConfigureControls(r *models.Repository, branches []*models.Bra
 
 	for _, config := range configs {
 		switch config {
+		case models.CONFIG_POLICY:
+			// CONFIG_POLICY is handled at the tool level, not by the backend
+			return fmt.Errorf("CONFIG_POLICY should be handled by Tool.ConfigureControls, not backend")
 		case models.CONFIG_BRANCH_RULES:
 			for _, branch := range branches {
 				glc, err := b.getGitLabConnection(branch.Repository, branch.FullRef())
@@ -274,14 +292,46 @@ func (b *Backend) ConfigureControls(r *models.Repository, branches []*models.Bra
 			}
 
 			if mr != nil {
-				log.Printf("Pipeline MR already exists")
+				log.Printf("Pipeline MR already exists: %s", mr.URL)
+				fmt.Printf("\n✅ Merge request already exists: %s\n\n", mr.URL)
 				continue
 			}
 
 			// Create new MR
-			if _, err := b.CreatePipelineMR(r, branches); err != nil {
+			newMR, err := b.CreatePipelineMR(r, branches)
+			if err != nil {
 				return fmt.Errorf("creating pipeline MR: %w", err)
 			}
+			fmt.Printf("\n✅ Merge request created: %s\n\n", newMR.URL)
+
+			// Print manual configuration instructions
+			fmt.Println("📋 Next Steps:")
+			fmt.Println()
+			fmt.Println("1. Review and merge the above merge request")
+			fmt.Println()
+
+			// Check if OIDC is supported to provide appropriate instructions
+			glc, err := b.getGitLabConnection(r, "")
+			if err == nil {
+				supportsOIDC, err := glc.SupportsOIDC(ctx)
+				if err == nil && !supportsOIDC {
+					// Cosign template is being used
+					fmt.Println("2. Configure the COSIGN_PRIVATE_KEY CI/CD variable:")
+					fmt.Println("   - Generate a cosign key pair:")
+					fmt.Println("     cosign generate-key-pair")
+					fmt.Println("   - In GitLab, go to Settings > CI/CD > Variables")
+					fmt.Println("   - Add a variable named COSIGN_PRIVATE_KEY")
+					fmt.Println("   - Paste the contents of cosign.key")
+					fmt.Println("   - Mark it as 'Masked' and 'Protected'")
+					fmt.Println()
+				}
+			}
+
+			fmt.Println("3. Ensure CI/CD has write access to push git notes:")
+			fmt.Println("   - The pipeline needs to push to refs/notes/*")
+			fmt.Println("   - This may require configuring a project access token")
+			fmt.Println("     with 'write_repository' scope")
+			fmt.Println()
 		case models.CONFIG_TAG_RULES:
 			glc, err := b.getGitLabConnection(r, "")
 			if err != nil {
@@ -303,6 +353,8 @@ func (b *Backend) ConfigureControls(r *models.Repository, branches []*models.Bra
 }
 
 // ControlPrecheck checks if prerequisites for a control are met
+//
+//nolint:gocritic // Function signature matches VcsBackend interface
 func (b *Backend) ControlPrecheck(*models.Repository, []*models.Branch, models.ControlConfiguration) (bool, string, models.ControlPreRemediationFn, error) {
 	// For now, no special prechecks for GitLab
 	return true, "", nil, nil
