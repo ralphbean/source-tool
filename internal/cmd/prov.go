@@ -77,7 +77,8 @@ func addProv(parentCmd *cobra.Command) {
 func doProv(opts *provOptions) error {
 	ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ghcontrol.BranchToFullRef(opts.branch)).WithAuthToken(githubToken)
 	ctx := context.Background()
-	pa := attest.NewProvenanceAttestor(ghconnection, getVerifier(&opts.verifierOptions))
+	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
+	pa := attest.NewProvenanceAttestor(adapter, getVerifier(&opts.verifierOptions))
 	newProv, err := pa.CreateSourceProvenance(ctx, opts.prevAttPath, opts.commit, opts.prevCommit, ghconnection.GetFullRef())
 	if err != nil {
 		return err

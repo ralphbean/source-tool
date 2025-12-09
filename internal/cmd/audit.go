@@ -161,7 +161,8 @@ func doAudit(auditArgs *auditOpts) error {
 	ghc := ghcontrol.NewGhConnection(auditArgs.owner, auditArgs.repository, ghcontrol.BranchToFullRef(auditArgs.branch)).WithAuthToken(githubToken)
 	ctx := context.Background()
 	verifier := getVerifier(&auditArgs.verifierOptions)
-	pa := attest.NewProvenanceAttestor(ghc, verifier)
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
+	pa := attest.NewProvenanceAttestor(adapter, verifier)
 
 	auditor := audit.NewAuditor(ghc, pa, verifier)
 

@@ -91,8 +91,9 @@ func (b *Backend) GetBranchControlsAtCommit(ctx context.Context, r *models.Repos
 
 	// We need to manually check for PROVENANCE_AVAILABLE which is not
 	// handled by ghcontrol
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
 	attestor := attest.NewProvenanceAttestor(
-		ghc, attest.GetDefaultVerifier(),
+		adapter, attest.GetDefaultVerifier(),
 	)
 
 	// Fetch the attestation. If found, then add the control:

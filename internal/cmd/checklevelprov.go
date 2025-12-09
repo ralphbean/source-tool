@@ -17,7 +17,9 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/attest"
 	"github.com/slsa-framework/source-tool/pkg/auth"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
+	"github.com/slsa-framework/source-tool/pkg/glcontrol"
 	"github.com/slsa-framework/source-tool/pkg/policy"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type checkLevelProvOpts struct {
@@ -81,36 +83,51 @@ func addCheckLevelProv(parentCmd *cobra.Command) {
 }
 
 func doCheckLevelProv(checkLevelProvArgs *checkLevelProvOpts) error {
-	// Check if this is a GitLab repository
-	repo := checkLevelProvArgs.GetRepository()
-	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
-		return fmt.Errorf("checklevelprov does not yet support GitLab repositories. " +
-			"GitLab support requires refactoring the ProvenanceAttestor to work with the GitLab backend. " +
-			"You can use 'checklevel' command instead, which does support GitLab")
-	}
-
-	t := githubToken
-	var err error
-	if t == "" {
-		t, err = auth.New().ReadToken()
-		if err != nil {
-			return err
-		}
-	}
-	ghconnection := ghcontrol.NewGhConnection(checkLevelProvArgs.owner, checkLevelProvArgs.repository, ghcontrol.BranchToFullRef(checkLevelProvArgs.branch)).WithAuthToken(t)
-	ghconnection.Options.AllowMergeCommits = checkLevelProvArgs.allowMergeCommits
 	ctx := context.Background()
+	repo := checkLevelProvArgs.GetRepository()
+	branch := checkLevelProvArgs.GetBranch()
+
+	// Create the appropriate VCS connection based on hostname
+	var connection models.ProvenanceConnection
+	var repoUri string
+	var fullRef string
+	var err error
+
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		// GitLab repository
+		glc, err := glcontrol.NewGitLabConnection(repo, branch.FullRef())
+		if err != nil {
+			return fmt.Errorf("creating GitLab connection: %w", err)
+		}
+		connection = glcontrol.NewProvenanceAdapter(glc)
+		repoUri = connection.GetRepoUri()
+		fullRef = connection.GetFullRef()
+	} else {
+		// GitHub repository (default)
+		t := githubToken
+		if t == "" {
+			t, err = auth.New().ReadToken()
+			if err != nil {
+				return err
+			}
+		}
+		ghc := ghcontrol.NewGhConnection(checkLevelProvArgs.owner, checkLevelProvArgs.repository, ghcontrol.BranchToFullRef(checkLevelProvArgs.branch)).WithAuthToken(t)
+		ghc.Options.AllowMergeCommits = checkLevelProvArgs.allowMergeCommits
+		connection = ghcontrol.NewProvenanceAdapter(ghc)
+		repoUri = ghc.GetRepoUri()
+		fullRef = ghc.GetFullRef()
+	}
 
 	prevCommit := checkLevelProvArgs.prevCommit
 	if prevCommit == "" {
-		prevCommit, err = ghconnection.GetPriorCommit(ctx, checkLevelProvArgs.commit)
+		prevCommit, err = connection.GetPriorCommit(ctx, checkLevelProvArgs.commit)
 		if err != nil {
 			return err
 		}
 	}
 
-	pa := attest.NewProvenanceAttestor(ghconnection, getVerifier(&checkLevelProvArgs.verifierOptions))
-	prov, err := pa.CreateSourceProvenance(ctx, checkLevelProvArgs.prevBundlePath, checkLevelProvArgs.commit, prevCommit, ghconnection.GetFullRef())
+	pa := attest.NewProvenanceAttestor(connection, getVerifier(&checkLevelProvArgs.verifierOptions))
+	prov, err := pa.CreateSourceProvenance(ctx, checkLevelProvArgs.prevBundlePath, checkLevelProvArgs.commit, prevCommit, fullRef)
 	if err != nil {
 		return err
 	}
@@ -124,7 +141,7 @@ func doCheckLevelProv(checkLevelProvArgs *checkLevelProvOpts) error {
 	}
 
 	// create vsa
-	unsignedVsa, err := attest.CreateUnsignedSourceVsa(ghconnection.GetRepoUri(), ghconnection.GetFullRef(), checkLevelProvArgs.commit, verifiedLevels, policyPath)
+	unsignedVsa, err := attest.CreateUnsignedSourceVsa(repoUri, fullRef, checkLevelProvArgs.commit, verifiedLevels, policyPath)
 	if err != nil {
 		return err
 	}

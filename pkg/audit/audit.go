@@ -57,7 +57,8 @@ func NewAuditor(ghc *ghcontrol.GitHubConnection, pa *attest.ProvenanceAttestor, 
 func (a *Auditor) AuditCommit(ctx context.Context, commit string) (ar *AuditCommitResult, err error) {
 	ar = &AuditCommitResult{Commit: commit}
 
-	_, vsa, err := attest.GetVsa(ctx, a.ghc, a.verifier, commit, a.ghc.GetFullRef())
+	adapter := ghcontrol.NewProvenanceAdapter(a.ghc)
+	_, vsa, err := attest.GetVsa(ctx, adapter, a.verifier, commit, a.ghc.GetFullRef())
 	if err != nil {
 		return nil, fmt.Errorf("getting vsa for revision %s: %w", commit, err)
 	}

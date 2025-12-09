@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-github/v69/github"
 
+	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
 	"github.com/slsa-framework/source-tool/pkg/slsa"
 	"github.com/slsa-framework/source-tool/pkg/testsupport"
 )
@@ -41,7 +42,8 @@ func TestReadVsaSuccess(t *testing.T) {
 		newNotesContent(testVsa))
 	verifier := testsupport.NewMockVerifier()
 
-	readStmt, readPred, err := GetVsa(t.Context(), ghc, verifier, "de9395302d14b24c0a42685cf27315d93c88ff79", "refs/some/ref")
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
+	readStmt, readPred, err := GetVsa(t.Context(), adapter, verifier, "de9395302d14b24c0a42685cf27315d93c88ff79", "refs/some/ref")
 	if err != nil {
 		t.Fatalf("error finding vsa: %v", err)
 	}
@@ -94,7 +96,8 @@ func TestReadVsaInvalidVsas(t *testing.T) {
 				newNotesContent(tt.vsa))
 			verifier := testsupport.NewMockVerifier()
 
-			_, readPred, err := GetVsa(t.Context(), ghc, verifier, "73f0a864c2c9af12e03dae433a6ff5f5e719d7aa", "refs/heads/main")
+			adapter := ghcontrol.NewProvenanceAdapter(ghc)
+			_, readPred, err := GetVsa(t.Context(), adapter, verifier, "73f0a864c2c9af12e03dae433a6ff5f5e719d7aa", "refs/heads/main")
 			if err != nil {
 				t.Fatalf("error finding vsa: %v", err)
 			}

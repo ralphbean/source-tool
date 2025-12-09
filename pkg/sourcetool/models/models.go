@@ -18,6 +18,34 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/slsa"
 )
 
+// ControlStatus represents the status of controls at a specific commit.
+// This is used by the provenance generation system.
+type ControlStatus struct {
+	CommitPushTime time.Time
+	ActorLogin     string
+	ActivityType   string
+	Controls       slsa.Controls
+}
+
+// ProvenanceConnection defines the interface for VCS connections that support
+// provenance generation. Both GitHub and GitLab backends implement this.
+//
+//counterfeiter:generate . ProvenanceConnection
+type ProvenanceConnection interface {
+	// GetBranchControlsAtCommit returns control status for a branch at a specific commit
+	GetBranchControlsAtCommit(ctx context.Context, commit, ref string) (*ControlStatus, error)
+	// GetTagControls returns control status for a tag
+	GetTagControls(ctx context.Context, commit, ref string) (*ControlStatus, error)
+	// GetNotesForCommit retrieves git notes for a commit
+	GetNotesForCommit(ctx context.Context, commit string) (string, error)
+	// GetRepoUri returns the repository URI (e.g., "https://github.com/owner/repo")
+	GetRepoUri() string
+	// GetFullRef returns the full reference (e.g., "refs/heads/main")
+	GetFullRef() string
+	// GetPriorCommit returns the parent commit SHA
+	GetPriorCommit(ctx context.Context, sha string) (string, error)
+}
+
 var (
 	ErrProtectionAlreadyInPlace = errors.New("controls already in place in the repository")
 	ErrRepositoryAccessDenied   = errors.New("access to repository denied")

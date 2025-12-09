@@ -146,7 +146,8 @@ func TestReadProvSuccess(t *testing.T) {
 		newNotesContent(testProv))
 	verifier := testsupport.NewMockVerifier()
 
-	pa := NewProvenanceAttestor(ghc, verifier)
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
+	pa := NewProvenanceAttestor(adapter, verifier)
 	readStmt, readPred, err := pa.GetProvenance(t.Context(), "73f0a864c2c9af12e03dae433a6ff5f5e719d7aa", "main")
 	if err != nil {
 		t.Fatalf("error finding prov: %v", err)
@@ -165,7 +166,8 @@ func TestReadProvFailure(t *testing.T) {
 		newNotesContent(testProv))
 	verifier := testsupport.NewMockVerifier()
 
-	pa := NewProvenanceAttestor(ghc, verifier)
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
+	pa := NewProvenanceAttestor(adapter, verifier)
 	_, readPred, err := pa.GetProvenance(t.Context(), "73f0a864c2c9af12e03dae433a6ff5f5e719d7aa", "main")
 	if err != nil {
 		t.Fatalf("error finding prov: %v", err)
@@ -184,7 +186,8 @@ func TestCreateTagProvenance(t *testing.T) {
 		newNotesContent(testVsa))
 	verifier := testsupport.NewMockVerifier()
 
-	pa := NewProvenanceAttestor(ghc, verifier)
+	adapter := ghcontrol.NewProvenanceAdapter(ghc)
+	pa := NewProvenanceAttestor(adapter, verifier)
 
 	stmt, err := pa.CreateTagProvenance(t.Context(), "73f0a864c2c9af12e03dae433a6ff5f5e719d7aa", "refs/tags/v1", "the-tag-pusher")
 	if err != nil {

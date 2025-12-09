@@ -70,7 +70,8 @@ func doCheckTag(args *checkTagOptions) error {
 	verifier := getVerifier(&args.verifierOptions)
 
 	// Create tag provenance.
-	pa := attest.NewProvenanceAttestor(ghconnection, verifier)
+	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
+	pa := attest.NewProvenanceAttestor(adapter, verifier)
 	pa.Options.VsaRetries = args.vsaRetries // Retry fetching the commit's VSA
 
 	prov, err := pa.CreateTagProvenance(ctx, args.commit, ghcontrol.TagToFullRef(args.tagName), args.actor)

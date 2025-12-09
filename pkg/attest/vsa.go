@@ -17,6 +17,7 @@ import (
 
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
 	"github.com/slsa-framework/source-tool/pkg/slsa"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 const (
@@ -77,8 +78,8 @@ func createUnsignedSourceVsaAllParams(repoUri, ref, commit string, verifiedLevel
 }
 
 // Gets a VSA for the commit from git notes.
-func GetVsa(ctx context.Context, ghc *ghcontrol.GitHubConnection, verifier Verifier, commit, ref string) (*spb.Statement, *vpb.VerificationSummary, error) {
-	notes, err := ghc.GetNotesForCommit(ctx, commit)
+func GetVsa(ctx context.Context, conn models.ProvenanceConnection, verifier Verifier, commit, ref string) (*spb.Statement, *vpb.VerificationSummary, error) {
+	notes, err := conn.GetNotesForCommit(ctx, commit)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fetching commit note: %w", err)
 	}
@@ -88,7 +89,7 @@ func GetVsa(ctx context.Context, ghc *ghcontrol.GitHubConnection, verifier Verif
 		return nil, nil, nil
 	}
 
-	return getVsaFromReader(NewBundleReader(bufio.NewReader(strings.NewReader(notes)), verifier), commit, ref, ghc.GetRepoUri())
+	return getVsaFromReader(NewBundleReader(bufio.NewReader(strings.NewReader(notes)), verifier), commit, ref, conn.GetRepoUri())
 }
 
 func getVsaPred(statement *spb.Statement) (*vpb.VerificationSummary, error) {

@@ -23,6 +23,7 @@ import (
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
 	"github.com/slsa-framework/source-tool/pkg/provenance"
 	"github.com/slsa-framework/source-tool/pkg/slsa"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type ProvenanceAttestorOptions struct {
@@ -30,13 +31,13 @@ type ProvenanceAttestorOptions struct {
 }
 
 type ProvenanceAttestor struct {
-	verifier      Verifier
-	gh_connection *ghcontrol.GitHubConnection
-	Options       ProvenanceAttestorOptions
+	verifier   Verifier
+	connection models.ProvenanceConnection
+	Options    ProvenanceAttestorOptions
 }
 
-func NewProvenanceAttestor(gh_connection *ghcontrol.GitHubConnection, verifier Verifier) *ProvenanceAttestor {
-	return &ProvenanceAttestor{verifier: verifier, gh_connection: gh_connection}
+func NewProvenanceAttestor(connection models.ProvenanceConnection, verifier Verifier) *ProvenanceAttestor {
+	return &ProvenanceAttestor{verifier: verifier, connection: connection}
 }
 
 func GetSourceProvPred(statement *spb.Statement) (*provenance.SourceProvenancePred, error) {
@@ -128,7 +129,7 @@ func addPredToStatement(provPred any, predicateType, commit string) (*spb.Statem
 
 // Create provenance for the current commit without any context from the previous provenance (if any).
 func (pa ProvenanceAttestor) createCurrentProvenance(ctx context.Context, commit, prevCommit, ref string) (*spb.Statement, error) {
-	controlStatus, err := pa.gh_connection.GetBranchControlsAtCommit(ctx, commit, ref)
+	controlStatus, err := pa.connection.GetBranchControlsAtCommit(ctx, commit, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +138,7 @@ func (pa ProvenanceAttestor) createCurrentProvenance(ctx context.Context, commit
 
 	var curProvPred provenance.SourceProvenancePred
 	curProvPred.PrevCommit = prevCommit
-	curProvPred.RepoUri = pa.gh_connection.GetRepoUri()
+	curProvPred.RepoUri = pa.connection.GetRepoUri()
 	curProvPred.Actor = controlStatus.ActorLogin
 	curProvPred.ActivityType = controlStatus.ActivityType
 	curProvPred.Branch = ref
@@ -159,7 +160,7 @@ func (pa ProvenanceAttestor) createCurrentProvenance(ctx context.Context, commit
 
 // Gets provenance for the commit from git notes.
 func (pa ProvenanceAttestor) GetProvenance(ctx context.Context, commit, ref string) (*spb.Statement, *provenance.SourceProvenancePred, error) {
-	notes, err := pa.gh_connection.GetNotesForCommit(ctx, commit)
+	notes, err := pa.connection.GetNotesForCommit(ctx, commit)
 	if notes == "" {
 		Debugf("didn't find notes for commit %s", commit)
 		return nil, nil, nil
@@ -193,7 +194,7 @@ func (pa ProvenanceAttestor) getProvFromReader(reader *BundleReader, commit, ref
 		if err != nil {
 			return nil, nil, err
 		}
-		if pa.gh_connection.GetRepoUri() == provPred.GetRepoUri() && (ref == ghcontrol.AnyReference || provPred.GetBranch() == ref) {
+		if pa.connection.GetRepoUri() == provPred.GetRepoUri() && (ref == ghcontrol.AnyReference || provPred.GetBranch() == ref) {
 			// Should be good!
 			return stmt, provPred, nil
 		} else {
@@ -265,7 +266,7 @@ func (pa ProvenanceAttestor) CreateTagProvenance(ctx context.Context, commit, re
 	// 2. Get a VSA associated with this commit, if any.
 	// 3. Record the levels and branches covered by that VSA in the provenance.
 
-	controlStatus, err := pa.gh_connection.GetTagControls(ctx, commit, ref)
+	controlStatus, err := pa.connection.GetTagControls(ctx, commit, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +278,7 @@ func (pa ProvenanceAttestor) CreateTagProvenance(ctx context.Context, commit, re
 	var vsaStatement *spb.Statement
 	var vsaPred *v1.VerificationSummary
 	for {
-		vsaStatement, vsaPred, err = GetVsa(ctx, pa.gh_connection, pa.verifier, commit, ghcontrol.AnyReference)
+		vsaStatement, vsaPred, err = GetVsa(ctx, pa.connection, pa.verifier, commit, ghcontrol.AnyReference)
 		if err != nil {
 			return nil, fmt.Errorf("error fetching VSA when creating tag provenance %w", err)
 		}
@@ -300,7 +301,7 @@ func (pa ProvenanceAttestor) CreateTagProvenance(ctx context.Context, commit, re
 	}
 
 	curProvPred := provenance.TagProvenancePred{
-		RepoUri:   pa.gh_connection.GetRepoUri(),
+		RepoUri:   pa.connection.GetRepoUri(),
 		Actor:     actor,
 		Tag:       ref,
 		CreatedOn: timestamppb.Now(),

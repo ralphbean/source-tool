@@ -87,7 +87,8 @@ func doVerifyCommit(opts *verifyCommitOptions) error {
 	ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ref).WithAuthToken(githubToken)
 	ctx := context.Background()
 
-	_, vsaPred, err := attest.GetVsa(ctx, ghconnection, getVerifier(&opts.verifierOptions), opts.commit, ghconnection.GetFullRef())
+	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
+	_, vsaPred, err := attest.GetVsa(ctx, adapter, getVerifier(&opts.verifierOptions), opts.commit, ghconnection.GetFullRef())
 	if err != nil {
 		return err
 	}

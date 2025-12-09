@@ -54,7 +54,8 @@ func (b *Backend) GetCommitVsa(ctx context.Context, branch *models.Branch, commi
 	if err != nil {
 		return nil, nil, err
 	}
-	statement, predicate, err := attest.GetVsa(ctx, gcx, attest.GetDefaultVerifier(), commit.SHA, branch.FullRef())
+	adapter := ghcontrol.NewProvenanceAdapter(gcx)
+	statement, predicate, err := attest.GetVsa(ctx, adapter, attest.GetDefaultVerifier(), commit.SHA, branch.FullRef())
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading VSA: %w", err)
 	}
@@ -69,7 +70,8 @@ func (b *Backend) GetCommitProvenance(ctx context.Context, branch *models.Branch
 		return nil, nil, err
 	}
 
-	pa := attest.NewProvenanceAttestor(gcx, attest.GetDefaultVerifier())
+	adapter := ghcontrol.NewProvenanceAdapter(gcx)
+	pa := attest.NewProvenanceAttestor(adapter, attest.GetDefaultVerifier())
 	statement, predicate, err := pa.GetProvenance(ctx, commit.SHA, branch.FullRef())
 	if err != nil {
 		return nil, nil, fmt.Errorf("reading provenance attestation: %w", err)
