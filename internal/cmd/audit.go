@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -158,6 +159,13 @@ func printResult(ghc *ghcontrol.GitHubConnection, ar *audit.AuditCommitResult, m
 }
 
 func doAudit(auditArgs *auditOpts) error {
+	repo := auditArgs.GetRepository()
+
+	// Check if this is a GitLab repository
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		return fmt.Errorf("audit command does not currently support GitLab repositories. GitLab support is tracked in the roadmap.")
+	}
+
 	ghc := ghcontrol.NewGhConnection(auditArgs.owner, auditArgs.repository, ghcontrol.BranchToFullRef(auditArgs.branch)).WithAuthToken(githubToken)
 	ctx := context.Background()
 	verifier := getVerifier(&auditArgs.verifierOptions)
