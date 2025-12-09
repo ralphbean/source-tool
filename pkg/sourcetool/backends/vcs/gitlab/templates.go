@@ -37,7 +37,7 @@ func getOIDCPipelineTemplate() string {
 
 .slsa-source:
   stage: build
-  image: golang:1.23
+  image: golang:1.25
   id_tokens:
     SIGSTORE_ID_TOKEN:
       aud: sigstore
