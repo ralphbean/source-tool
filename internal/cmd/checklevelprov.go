@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -80,6 +81,14 @@ func addCheckLevelProv(parentCmd *cobra.Command) {
 }
 
 func doCheckLevelProv(checkLevelProvArgs *checkLevelProvOpts) error {
+	// Check if this is a GitLab repository
+	repo := checkLevelProvArgs.GetRepository()
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		return fmt.Errorf("checklevelprov does not yet support GitLab repositories. " +
+			"GitLab support requires refactoring the ProvenanceAttestor to work with the GitLab backend. " +
+			"You can use 'checklevel' command instead, which does support GitLab")
+	}
+
 	t := githubToken
 	var err error
 	if t == "" {
