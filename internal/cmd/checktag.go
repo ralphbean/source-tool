@@ -9,13 +9,16 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/slsa-framework/source-tool/pkg/attest"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
+	"github.com/slsa-framework/source-tool/pkg/glcontrol"
 	"github.com/slsa-framework/source-tool/pkg/policy"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type checkTagOptions struct {
@@ -65,16 +68,41 @@ func addCheckTag(parentCmd *cobra.Command) {
 }
 
 func doCheckTag(args *checkTagOptions) error {
-	ghconnection := ghcontrol.NewGhConnection(args.owner, args.repository, ghcontrol.TagToFullRef(args.tagName)).WithAuthToken(githubToken)
 	ctx := context.Background()
+	repo := args.GetRepository()
+
+	tagRef := ghcontrol.TagToFullRef(args.tagName)
+
+	// Create the appropriate VCS connection based on hostname
+	var connection models.ProvenanceConnection
+	var repoUri string
+	var fullRef string
+	var err error
+
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		// GitLab repository
+		glc, err := glcontrol.NewGitLabConnectionWithHostname(repo.Path, tagRef, repo.Hostname)
+		if err != nil {
+			return fmt.Errorf("creating GitLab connection: %w", err)
+		}
+		connection = glcontrol.NewProvenanceAdapter(glc)
+		repoUri = connection.GetRepoUri()
+		fullRef = connection.GetFullRef()
+	} else {
+		// GitHub repository (default)
+		ghconnection := ghcontrol.NewGhConnection(args.owner, args.repository, tagRef).WithAuthToken(githubToken)
+		connection = ghcontrol.NewProvenanceAdapter(ghconnection)
+		repoUri = ghconnection.GetRepoUri()
+		fullRef = ghconnection.GetFullRef()
+	}
+
 	verifier := getVerifier(&args.verifierOptions)
 
 	// Create tag provenance.
-	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
-	pa := attest.NewProvenanceAttestor(adapter, verifier)
+	pa := attest.NewProvenanceAttestor(connection, verifier)
 	pa.Options.VsaRetries = args.vsaRetries // Retry fetching the commit's VSA
 
-	prov, err := pa.CreateTagProvenance(ctx, args.commit, ghcontrol.TagToFullRef(args.tagName), args.actor)
+	prov, err := pa.CreateTagProvenance(ctx, args.commit, tagRef, args.actor)
 	if err != nil {
 		return fmt.Errorf("creating tag provenance metadata: %w", err)
 	}
@@ -88,7 +116,7 @@ func doCheckTag(args *checkTagOptions) error {
 	}
 
 	// create vsa
-	unsignedVsa, err := attest.CreateUnsignedSourceVsa(ghconnection.GetRepoUri(), ghconnection.GetFullRef(), args.commit, verifiedLevels, policyPath)
+	unsignedVsa, err := attest.CreateUnsignedSourceVsa(repoUri, fullRef, args.commit, verifiedLevels, policyPath)
 	if err != nil {
 		return err
 	}

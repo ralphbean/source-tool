@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/slsa-framework/source-tool/pkg/attest"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
+	"github.com/slsa-framework/source-tool/pkg/glcontrol"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type provOptions struct {
@@ -75,11 +78,32 @@ func addProv(parentCmd *cobra.Command) {
 }
 
 func doProv(opts *provOptions) error {
-	ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ghcontrol.BranchToFullRef(opts.branch)).WithAuthToken(githubToken)
 	ctx := context.Background()
-	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
-	pa := attest.NewProvenanceAttestor(adapter, getVerifier(&opts.verifierOptions))
-	newProv, err := pa.CreateSourceProvenance(ctx, opts.prevAttPath, opts.commit, opts.prevCommit, ghconnection.GetFullRef())
+	repo := opts.GetRepository()
+	branch := opts.GetBranch()
+
+	// Create the appropriate VCS connection based on hostname
+	var connection models.ProvenanceConnection
+	var fullRef string
+	var err error
+
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		// GitLab repository
+		glc, err := glcontrol.NewGitLabConnectionWithHostname(repo.Path, branch.FullRef(), repo.Hostname)
+		if err != nil {
+			return fmt.Errorf("creating GitLab connection: %w", err)
+		}
+		connection = glcontrol.NewProvenanceAdapter(glc)
+		fullRef = connection.GetFullRef()
+	} else {
+		// GitHub repository (default)
+		ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ghcontrol.BranchToFullRef(opts.branch)).WithAuthToken(githubToken)
+		connection = ghcontrol.NewProvenanceAdapter(ghconnection)
+		fullRef = ghconnection.GetFullRef()
+	}
+
+	pa := attest.NewProvenanceAttestor(connection, getVerifier(&opts.verifierOptions))
+	newProv, err := pa.CreateSourceProvenance(ctx, opts.prevAttPath, opts.commit, opts.prevCommit, fullRef)
 	if err != nil {
 		return err
 	}

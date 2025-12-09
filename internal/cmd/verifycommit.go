@@ -7,11 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/slsa-framework/source-tool/pkg/attest"
 	"github.com/slsa-framework/source-tool/pkg/ghcontrol"
+	"github.com/slsa-framework/source-tool/pkg/glcontrol"
+	"github.com/slsa-framework/source-tool/pkg/sourcetool/models"
 )
 
 type verifyCommitOptions struct {
@@ -74,6 +77,9 @@ func addVerifyCommit(cmd *cobra.Command) {
 }
 
 func doVerifyCommit(opts *verifyCommitOptions) error {
+	ctx := context.Background()
+	repo := opts.GetRepository()
+
 	var ref string
 	switch {
 	case opts.branch != "":
@@ -84,11 +90,27 @@ func doVerifyCommit(opts *verifyCommitOptions) error {
 		return fmt.Errorf("must specify either branch or tag")
 	}
 
-	ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ref).WithAuthToken(githubToken)
-	ctx := context.Background()
+	// Create the appropriate VCS connection based on hostname
+	var connection models.ProvenanceConnection
+	var fullRef string
+	var err error
 
-	adapter := ghcontrol.NewProvenanceAdapter(ghconnection)
-	_, vsaPred, err := attest.GetVsa(ctx, adapter, getVerifier(&opts.verifierOptions), opts.commit, ghconnection.GetFullRef())
+	if repo != nil && repo.Hostname != "" && strings.Contains(strings.ToLower(repo.Hostname), "gitlab") {
+		// GitLab repository
+		glc, err := glcontrol.NewGitLabConnectionWithHostname(repo.Path, ref, repo.Hostname)
+		if err != nil {
+			return fmt.Errorf("creating GitLab connection: %w", err)
+		}
+		connection = glcontrol.NewProvenanceAdapter(glc)
+		fullRef = connection.GetFullRef()
+	} else {
+		// GitHub repository (default)
+		ghconnection := ghcontrol.NewGhConnection(opts.owner, opts.repository, ref).WithAuthToken(githubToken)
+		connection = ghcontrol.NewProvenanceAdapter(ghconnection)
+		fullRef = ghconnection.GetFullRef()
+	}
+
+	_, vsaPred, err := attest.GetVsa(ctx, connection, getVerifier(&opts.verifierOptions), opts.commit, fullRef)
 	if err != nil {
 		return err
 	}
